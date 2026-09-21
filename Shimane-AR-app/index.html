@@ -1,13 +1,19 @@
 <!doctype html>
-<html lang="en">
+<html lang="ja">
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>shimane-ar-app</title>
+    <!-- スマホでピンチズームさせない（ARの操作を邪魔するため） -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <title>島根AR</title>
   </head>
   <body>
-    <div id="app"></div>
+    <!-- MindAR がこの中にカメラ映像と canvas を作る -->
+    <div id="ar-container"></div>
+
+    <!-- 状態表示。読み込み中・エラー・案内をここに出す -->
+    <div id="status"></div>
+
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>
