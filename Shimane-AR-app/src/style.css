@@ -9,13 +9,22 @@ body {
   width: 100%;
   height: 100%;
   overflow: hidden;
-  background: #000;
   font-family: system-ui, -apple-system, sans-serif;
 }
 
-/* MindAR が中に video と canvas を絶対配置するので、基準となる箱を用意する */
+/* 背景色は html にだけ置く。
+   body にも置くと、MindAR が z-index:-2 で挿入するカメラ映像の video より
+   body の背景の方が後に描かれ、映像を黒く塗りつぶしてしまう。 */
+html {
+  background: #000;
+}
+
+/* MindAR が中に video と canvas を絶対配置するので、基準となる箱を用意する。
+   z-index を明示して重ね合わせコンテキストを作り、video の z-index:-2 を
+   この箱の内側に閉じ込める（箱の外の背景より後ろへ回り込ませない）。 */
 #ar-container {
   position: relative;
+  z-index: 0;
   width: 100vw;
   height: 100vh;
 }

@@ -3,10 +3,8 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { MindARThree } from 'mind-ar/dist/mindar-image-three.prod.js';
 
-// ?url で読むと、ファイルが存在しない場合にビルドが失敗する。
-// パスのタイポを実機まで持ち込まないための保険。
-import markerUrl from './assets/markers/card.mind?url';
-import modelUrl from './assets/glb/Present01.glb?url';
+import { MARKER_URL, TARGETS } from './targets';
+import type { TargetDef } from './targets';
 
 const containerEl = document.querySelector<HTMLDivElement>('#ar-container')!;
 const statusEl = document.querySelector<HTMLDivElement>('#status')!;
@@ -60,9 +58,15 @@ async function main(): Promise<void> {
 
   setStatus('読み込み中…');
 
+  // どのポスターが何番なのかは .mind からは分からない。
+  // 取り違えに気づけるよう、対応表をコンソールに出しておく。
+  console.info(
+    '[AR] ターゲット一覧 ' + TARGETS.map((t) => `${t.index}=${t.name}`).join(' / '),
+  );
+
   const mindarThree = new MindARThree({
     container: containerEl,
-    imageTargetSrc: markerUrl,
+    imageTargetSrc: MARKER_URL,
     // 組み込みUIは使わず、上の #status で自前に表示する
     uiLoading: 'no',
     uiScanning: 'no',
@@ -77,22 +81,66 @@ async function main(): Promise<void> {
   keyLight.position.set(1, 2, 3);
   scene.add(keyLight);
 
-  const gltf = await new GLTFLoader().loadAsync(modelUrl);
-  const model = gltf.scene;
-  fitToMarker(model);
-  // アンカーの座標系はマーカー面が XY 平面。X軸に90度回すとモデルがカードから立ち上がる。
-  model.rotation.x = Math.PI / 2;
+  const loader = new GLTFLoader();
+  /** 描画ループで回すモデル。spin を付けたものだけ入る */
+  const spinningModels: THREE.Object3D[] = [];
+  /** 読み込み済み・読み込み中の index。onTargetFound は連続で呼ばれるので二重起動を防ぐ */
+  const requested = new Set<number>();
+  /** いま認識中のマーカー数。0 になったときだけ案内を出す */
+  let visibleCount = 0;
 
-  const anchor = mindarThree.addAnchor(0);
-  anchor.group.add(model);
-  anchor.onTargetFound = () => setStatus('');
-  anchor.onTargetLost = () => setStatus('マーカーを探しています…');
+  /**
+   * glb を読んでアンカーにぶら下げる。同じターゲットでは1回しか実行されない。
+   * announce は、読み込み中であることを画面に出すかどうか
+   * （起動時のまとめ読みでは「読み込み中…」が既に出ているので不要）。
+   */
+  async function loadModel(def: TargetDef, anchor: any, announce: boolean): Promise<void> {
+    if (requested.has(def.index)) return;
+    requested.add(def.index);
+
+    if (announce) setStatus(`${def.name} を読み込み中…`);
+
+    try {
+      const gltf = await loader.loadAsync(def.modelUrl);
+      const model = gltf.scene;
+      fitToMarker(model, def.scale ?? 1);
+      // アンカーの座標系はマーカー面が XY 平面。X軸に90度回すとモデルがカードから立ち上がる。
+      model.rotation.x = Math.PI / 2;
+      anchor.group.add(model);
+      if (def.spin) spinningModels.push(model);
+
+      if (announce) setStatus('');
+    } catch (error) {
+      // 次にかざした時に読み直せるよう、印を消しておく
+      requested.delete(def.index);
+      console.error(`[AR] ${def.name} の読み込みに失敗`, error);
+      setStatus(`${def.name} を読み込めませんでした。通信状態を確認してください。`, true);
+    }
+  }
+
+  for (const def of TARGETS) {
+    const anchor = mindarThree.addAnchor(def.index);
+
+    anchor.onTargetFound = () => {
+      visibleCount += 1;
+      setStatus('');
+      void loadModel(def, anchor, true);
+    };
+    anchor.onTargetLost = () => {
+      visibleCount = Math.max(0, visibleCount - 1);
+      if (visibleCount === 0) setStatus('マーカーを探しています…');
+    };
+
+    if (def.preload) await loadModel(def, anchor, false);
+  }
 
   await mindarThree.start();
   setStatus('マーカーを探しています…');
 
   renderer.setAnimationLoop(() => {
-    model.rotation.z += 0.01; // 立ち上げた後の「その場で回転」はZ軸まわり
+    for (const model of spinningModels) {
+      model.rotation.z += 0.01; // 立ち上げた後の「その場で回転」はZ軸まわり
+    }
     renderer.render(scene, camera);
   });
 
