@@ -8,7 +8,10 @@
  *
  *   1. https://hiukim.github.io/mind-ar-js-doc/tools/compile を開く
  *   2. 下の TARGETS に並んでいる順番どおりに、ポスター画像をアップロードする
- *   3. 出力を src/assets/markers/ に置き、下の markerUrl の import を合わせる
+ *        index 0 -> card.png
+ *        index 1 -> logo-marker.png
+ *        index 2 -> kanji-fish.png（魚の漢字カード）
+ *   3. 出力を src/assets/markers/targets.mind に置く
  *
  *   .mind は「1ファイルに全マーカー」という形式で、MindAR は .mind を1本しか
  *   読み込めない。ポスターを1枚足すときも、既存のぶんを含めて必ず全部まとめて
@@ -21,8 +24,10 @@
 
 // ?url で読むと、ファイルが存在しない場合にビルドが失敗する。
 // パスのタイポを実機まで持ち込まないための保険。
-import markerUrl from './assets/markers/card.mind?url';
+import markerUrl from './assets/markers/targets.mind?url';
 import present01Url from './assets/glb/Present01.glb?url';
+import ailabLogoUrl from './assets/glb/AIlablogoteisei.glb?url';
+import fishSchoolUrl from './assets/glb/fish_school.glb?url';
 
 /** 全マーカー分をまとめた .mind。複数対応したらファイル名ごと差し替える。 */
 export const MARKER_URL = markerUrl;
@@ -49,4 +54,6 @@ export type TargetDef = {
 
 export const TARGETS: TargetDef[] = [
   { index: 0, name: 'プレゼント', modelUrl: present01Url, spin: true, preload: true },
+  { index: 1, name: 'AIラボのロゴ', modelUrl: ailabLogoUrl, spin: true, preload: true },
+  { index: 2, name: '魚の群れ', modelUrl: fishSchoolUrl, spin: true, preload: true },
 ];
