@@ -32,7 +32,8 @@ html {
 #status {
   position: fixed;
   left: 50%;
-  bottom: 32px;
+  /* 撮影ボタンの上に重ならないよう、ボタンの分だけ持ち上げている */
+  bottom: 116px;
   transform: translateX(-50%);
   max-width: 90vw;
   padding: 12px 20px;
@@ -53,4 +54,63 @@ html {
 #status.is-error {
   background: rgba(190, 30, 30, 0.9);
   border-radius: 12px;
+}
+
+/* 撮影ボタン。カメラアプリに倣った二重丸 */
+#shutter {
+  position: fixed;
+  left: 50%;
+  bottom: 28px;
+  transform: translateX(-50%);
+  width: 68px;
+  height: 68px;
+  padding: 0;
+  border: 4px solid rgba(255, 255, 255, 0.9);
+  border-radius: 50%;
+  background: transparent;
+  cursor: pointer;
+  z-index: 10;
+  /* iOS で長押ししたときに選択メニューが出るのを防ぐ */
+  -webkit-tap-highlight-color: transparent;
+  -webkit-touch-callout: none;
+  user-select: none;
+}
+
+#shutter::after {
+  content: '';
+  display: block;
+  width: 52px;
+  height: 52px;
+  margin: 4px;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform 0.1s ease;
+}
+
+#shutter:active::after {
+  transform: scale(0.88);
+}
+
+#shutter:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* 撮影時のフラッシュ。既定では透明で、クリックも通さない */
+#flash {
+  position: fixed;
+  inset: 0;
+  background: #fff;
+  opacity: 0;
+  pointer-events: none;
+  z-index: 20;
+}
+
+#flash.is-on {
+  animation: flash 0.28s ease-out;
+}
+
+@keyframes flash {
+  0% { opacity: 0.85; }
+  100% { opacity: 0; }
 }

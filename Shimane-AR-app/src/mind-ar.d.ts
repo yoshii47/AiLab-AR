@@ -44,6 +44,13 @@ declare module 'mind-ar/dist/mindar-image-three.prod.js' {
     readonly scene: Scene;
     readonly camera: PerspectiveCamera;
 
+    /**
+     * カメラ映像の <video>。start() の中で生成されるので、それ以前は存在しない。
+     * 撮影時に canvas と重ねるために参照する。
+     * 画面上の位置とサイズは MindAR の resize() が style に直接書き込む。
+     */
+    readonly video: HTMLVideoElement;
+
     /** マーカー番号を指定してアンカーを作る（.mind内の順番、0始まり） */
     addAnchor(targetIndex: number): MindARAnchor;
 

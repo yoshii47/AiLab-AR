@@ -1,13 +1,18 @@
 import './style.css';
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import type { GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { MindARThree } from 'mind-ar/dist/mindar-image-three.prod.js';
 
 import { MARKER_URL, TARGETS } from './targets';
+import { createPortal, placeOnSpot } from './portal';
+import type { Portal } from './portal';
 import type { TargetDef } from './targets';
 
 const containerEl = document.querySelector<HTMLDivElement>('#ar-container')!;
 const statusEl = document.querySelector<HTMLDivElement>('#status')!;
+const shutterEl = document.querySelector<HTMLButtonElement>('#shutter')!;
+const flashEl = document.querySelector<HTMLDivElement>('#flash')!;
 
 function setStatus(message: string, isError = false): void {
   statusEl.textContent = message;
@@ -16,21 +21,94 @@ function setStatus(message: string, isError = false): void {
 
 /**
  * モデルの大きさはファイルによってバラバラなので、
- * マーカーの幅を 1.0 とする座標系に収まるよう正規化する。
- * これをしないと、巨大すぎて画面を埋めるか、小さすぎて見えないかになる。
+ * マーカーの幅を 1.0 とする座標系に収まるよう正規化し、
+ * 「原点＝モデルの中心」になる親グループに入れて返す。
+ *
+ * 親を1枚かぶせるのは回転のため。Three.js の変換は T・R・S の順に合成され、
+ * position は回転の影響を受けない。そのため中心合わせを model.position だけで
+ * やると、回した瞬間にモデルが原点のまわりを半径 |中心のズレ| で公転してしまう。
+ * glb の原点が隅に置かれているモデルほど派手に振り回される。
+ * 回転は中心に原点を合わせた親に対してかけること。
  */
-function fitToMarker(object: THREE.Object3D, targetSize = 1): void {
+function fitToMarker(object: THREE.Object3D, targetSize = 1): THREE.Group {
+  const pivot = new THREE.Group();
+
   const box = new THREE.Box3().setFromObject(object);
   const size = box.getSize(new THREE.Vector3());
   const center = box.getCenter(new THREE.Vector3());
 
   const maxDimension = Math.max(size.x, size.y, size.z);
-  if (maxDimension === 0) return;
+  if (maxDimension > 0) {
+    const scale = targetSize / maxDimension;
+    object.scale.setScalar(scale);
+    // 中心が pivot の原点に重なるようにずらす（足元基準のモデルもあるため）
+    object.position.sub(center.multiplyScalar(scale));
+  }
 
-  const scale = targetSize / maxDimension;
-  object.scale.setScalar(scale);
-  // 原点がモデルの中心に来るようにずらす（足元基準のモデルもあるため）
-  object.position.sub(center.multiplyScalar(scale));
+  pivot.add(object);
+  return pivot;
+}
+
+/** 撮影した瞬間に画面を一度光らせる */
+function flash(): void {
+  flashEl.classList.remove('is-on');
+  void flashEl.offsetWidth; // 連続撮影でもアニメーションを確実に再生させる
+  flashEl.classList.add('is-on');
+}
+
+/** `shimane-ar-2026-10-09T12-34-56.jpg` のような、重複しないファイル名を作る */
+function makeFileName(): string {
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+  return `shimane-ar-${stamp}.jpg`;
+}
+
+/**
+ * data URL を Blob に変換する。
+ * canvas.toBlob() は非同期で、その間に「ユーザー操作中」という状態が切れてしまい、
+ * iOS で共有シートが開けなくなる。同期で完結させるためにこの経路を取る。
+ */
+function dataUrlToBlob(dataUrl: string): Blob {
+  const [header, base64] = dataUrl.split(',');
+  const mime = header.match(/:(.*?);/)?.[1] ?? 'image/jpeg';
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return new Blob([bytes], { type: mime });
+}
+
+/** <a download> でそのまま端末に落とす */
+function downloadBlob(blob: Blob, fileName: string): void {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = fileName;
+  link.click();
+  // すぐ解放するとダウンロードが始まらない端末があるので、少し待ってから捨てる
+  window.setTimeout(() => URL.revokeObjectURL(url), 10_000);
+}
+
+/**
+ * 画像を端末に保存する。
+ * iOS Safari は download 属性が効かないことが多く、共有シート経由が本命。
+ * 使えない環境では従来どおりダウンロードに落とす。
+ */
+function saveImage(blob: Blob): void {
+  const fileName = makeFileName();
+  const file = new File([blob], fileName, { type: 'image/jpeg' });
+
+  if (navigator.canShare?.({ files: [file] })) {
+    navigator.share({ files: [file] }).catch((error: unknown) => {
+      // 共有シートを閉じただけなら、失敗ではないので何も言わない
+      if (error instanceof DOMException && error.name === 'AbortError') return;
+      console.warn('[AR] 共有に失敗したためダウンロードに切り替えます', error);
+      downloadBlob(blob, fileName);
+    });
+    return;
+  }
+
+  downloadBlob(blob, fileName);
 }
 
 /** 例外の内容から、利用者が読んで分かる文言を作る */
@@ -82,8 +160,21 @@ async function main(): Promise<void> {
   scene.add(keyLight);
 
   const loader = new GLTFLoader();
-  /** 描画ループで回すモデル。spin を付けたものだけ入る */
-  const spinningModels: THREE.Object3D[] = [];
+  /** 経過時間の計測。アニメーションの進行に使う */
+  const clock = new THREE.Clock();
+  /**
+   * 描画ループで回すモデル。spin を付けたものだけ入る。
+   * 立ち上げたモデルはZ軸、窓の中のモデルは立ったままなのでY軸まわりに回す。
+   */
+  const spinningModels: { object: THREE.Object3D; axis: 'y' | 'z' }[] = [];
+  /** 窓（ポータル）。凹む演出の進み具合を管理する */
+  const portals = new Map<number, { portal: Portal; openedAt: number | null; lostAt: number }>();
+  /** 凹む演出にかける秒数 */
+  const PORTAL_OPEN_SECONDS = 0.9;
+  /** これより長く見失ってから再びかざしたら、もう一度凹む演出をする */
+  const PORTAL_REOPEN_AFTER = 1.5;
+  /** glb に埋め込まれたアニメーションの再生装置。モデル1体につき1つ */
+  const mixers: THREE.AnimationMixer[] = [];
   /** 読み込み済み・読み込み中の index。onTargetFound は連続で呼ばれるので二重起動を防ぐ */
   const requested = new Set<number>();
   /** いま認識中のマーカー数。0 になったときだけ案内を出す */
@@ -94,6 +185,23 @@ async function main(): Promise<void> {
    * announce は、読み込み中であることを画面に出すかどうか
    * （起動時のまとめ読みでは「読み込み中…」が既に出ているので不要）。
    */
+  /**
+   * glb にアニメーションが入っていれば再生する。
+   * ボーン（リグ）の有無に関わらず、GLTFLoader が gltf.animations に詰めてくれる。
+   */
+  function playAnimations(label: string, gltf: GLTF): void {
+    if (gltf.animations.length === 0) return;
+    const mixer = new THREE.AnimationMixer(gltf.scene);
+    for (const clip of gltf.animations) {
+      mixer.clipAction(clip).play(); // 既定でループ再生
+    }
+    mixers.push(mixer);
+    console.info(
+      `[AR] ${label} のアニメーションを再生 ` +
+        gltf.animations.map((c) => c.name || '(無名)').join(', '),
+    );
+  }
+
   async function loadModel(def: TargetDef, anchor: any, announce: boolean): Promise<void> {
     if (requested.has(def.index)) return;
     requested.add(def.index);
@@ -101,13 +209,35 @@ async function main(): Promise<void> {
     if (announce) setStatus(`${def.name} を読み込み中…`);
 
     try {
-      const gltf = await loader.loadAsync(def.modelUrl);
-      const model = gltf.scene;
-      fitToMarker(model, def.scale ?? 1);
-      // アンカーの座標系はマーカー面が XY 平面。X軸に90度回すとモデルがカードから立ち上がる。
-      model.rotation.x = Math.PI / 2;
-      anchor.group.add(model);
-      if (def.spin) spinningModels.push(model);
+      // 窓の表示では部屋の glb も要る。モデルと並行して読む
+      const [gltf, roomGltf] = await Promise.all([
+        loader.loadAsync(def.modelUrl),
+        def.portal ? loader.loadAsync(def.portal.roomUrl) : Promise.resolve(null),
+      ]);
+      const pivot = fitToMarker(gltf.scene, def.scale ?? 1);
+
+      if (def.portal && roomGltf) {
+        const portal = createPortal(roomGltf.scene, def.portal.windowWidth);
+        // 部屋は +Y が上なので、glb（Y軸が上）は回さずにそのまま立てて置ける
+        if (placeOnSpot(portal, pivot)) {
+          if (def.spin) spinningModels.push({ object: pivot, axis: 'y' });
+        } else {
+          console.warn(`[AR] ${def.name} の部屋に ModelSpot が無いため、モデルは置きません`);
+        }
+        anchor.group.add(portal.root);
+        // 認識前に読み終わった場合も、見つけた瞬間から凹み始めるよう閉じておく
+        portal.setOpen(0);
+        portals.set(def.index, { portal, openedAt: null, lostAt: -Infinity });
+        // 部屋の中の動き（揺れる小物など）は部屋の glb に入れてもらい、ここで再生する
+        playAnimations(`${def.name} の部屋`, roomGltf);
+      } else {
+        // アンカーの座標系はマーカー面が XY 平面。X軸に90度回すとモデルがカードから立ち上がる。
+        pivot.rotation.x = Math.PI / 2;
+        anchor.group.add(pivot);
+        if (def.spin) spinningModels.push({ object: pivot, axis: 'z' });
+      }
+
+      if (def.animate !== false) playAnimations(def.name, gltf);
 
       if (announce) setStatus('');
     } catch (error) {
@@ -123,23 +253,93 @@ async function main(): Promise<void> {
 
     anchor.onTargetFound = () => {
       visibleCount += 1;
+      const entry = portals.get(def.index);
+      const now = clock.elapsedTime;
+      if (entry && (entry.openedAt === null || now - entry.lostAt > PORTAL_REOPEN_AFTER)) {
+        entry.openedAt = now;
+      }
       setStatus('');
       void loadModel(def, anchor, true);
     };
     anchor.onTargetLost = () => {
       visibleCount = Math.max(0, visibleCount - 1);
+      const entry = portals.get(def.index);
+      if (entry) entry.lostAt = clock.elapsedTime;
       if (visibleCount === 0) setStatus('マーカーを探しています…');
     };
 
     if (def.preload) await loadModel(def, anchor, false);
   }
 
+  /**
+   * カメラ映像と3Dを1枚の canvas に重ねる。
+   *
+   * 画面は <video>（カメラ）の上に透明な <canvas>（3D）を載せた2層構造で、
+   * 合成しているのはブラウザの表示処理でしかない。データとしては別物なので、
+   * renderer の canvas をそのまま書き出すと背景が抜けた画像になる。
+   */
+  function composite(): HTMLCanvasElement {
+    const video = mindarThree.video;
+    const source = renderer.domElement;
+
+    const out = document.createElement('canvas');
+    out.width = source.width;
+    out.height = source.height;
+    const ctx = out.getContext('2d')!;
+
+    // renderer は devicePixelRatio 分だけ内部解像度が大きい。CSSピクセルとの倍率を出す
+    const ratio = source.width / containerEl.clientWidth;
+
+    // カメラ映像は画面からはみ出す形で置かれている（MindAR の resize() が決めた値）。
+    // 自分で計算し直すとズレるので、実際に使われている数値をそのまま読む。
+    const left = Number.parseFloat(video.style.left) || 0;
+    const top = Number.parseFloat(video.style.top) || 0;
+    const width = Number.parseFloat(video.style.width) || containerEl.clientWidth;
+    const height = Number.parseFloat(video.style.height) || containerEl.clientHeight;
+
+    ctx.drawImage(video, left * ratio, top * ratio, width * ratio, height * ratio);
+    ctx.drawImage(source, 0, 0, out.width, out.height);
+    return out;
+  }
+
+  function onShutter(): void {
+    shutterEl.disabled = true;
+    try {
+      // WebGL は画面に出した後で描画バッファを捨てる。MindAR 側が
+      // preserveDrawingBuffer を付けていないので、同じ処理の中で描き直して
+      // すぐ読み出す（この時点ではまだ中身が残っている）。
+      renderer.render(scene, camera);
+      // PNG より速く、透過が無いぶん背景が黒くなる事故も起きない
+      const dataUrl = composite().toDataURL('image/jpeg', 0.92);
+      flash();
+      saveImage(dataUrlToBlob(dataUrl));
+    } catch (error) {
+      console.error('[AR] 撮影に失敗', error);
+      setStatus('写真を保存できませんでした。', true);
+    } finally {
+      shutterEl.disabled = false;
+    }
+  }
+
+  shutterEl.addEventListener('click', onShutter);
+
   await mindarThree.start();
   setStatus('マーカーを探しています…');
+  // カメラが動き出してから出す（それまで押しても撮るものが無い）
+  shutterEl.hidden = false;
 
   renderer.setAnimationLoop(() => {
-    for (const model of spinningModels) {
-      model.rotation.z += 0.01; // 立ち上げた後の「その場で回転」はZ軸まわり
+    // 前フレームからの経過秒。端末ごとのフレームレート差を吸収する
+    const delta = clock.getDelta();
+    for (const mixer of mixers) {
+      mixer.update(delta);
+    }
+    for (const { object, axis } of spinningModels) {
+      object.rotation[axis] += 0.01;
+    }
+    for (const entry of portals.values()) {
+      if (entry.openedAt === null) continue;
+      entry.portal.setOpen((clock.elapsedTime - entry.openedAt) / PORTAL_OPEN_SECONDS);
     }
     renderer.render(scene, camera);
   });
@@ -148,6 +348,7 @@ async function main(): Promise<void> {
   window.addEventListener('pagehide', () => {
     renderer.setAnimationLoop(null);
     mindarThree.stop();
+    shutterEl.hidden = true;
   });
 }
 

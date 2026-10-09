@@ -14,6 +14,12 @@
     <!-- 状態表示。読み込み中・エラー・案内をここに出す -->
     <div id="status"></div>
 
+    <!-- 撮影ボタン。AR が起動するまでは隠しておく -->
+    <button id="shutter" type="button" aria-label="写真を撮る" hidden></button>
+
+    <!-- 撮影時に一瞬光らせる。押した手応えを出すため -->
+    <div id="flash" aria-hidden="true"></div>
+
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>
