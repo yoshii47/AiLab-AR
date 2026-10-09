@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "portal-preview",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["vite", "--config", "/private/tmp/claude-501/-Users-yoshikawahobu-mywork-AILab-schoolFes-AR-Shimane-AR-app/1b019f9e-6fcc-4ffd-b87f-d128c60e67b3/scratchpad/vite.http.config.mjs"],
+      "port": 5199
+    }
+  ]
+}
