@@ -7,6 +7,7 @@ import { MindARThree } from 'mind-ar/dist/mindar-image-three.prod.js';
 import { MARKER_URL, TARGETS } from './targets';
 import { createPortal, placeOnSpot } from './portal';
 import type { Portal } from './portal';
+import { RotateControl } from './rotate-control';
 import type { TargetDef } from './targets';
 
 const containerEl = document.querySelector<HTMLDivElement>('#ar-container')!;
@@ -166,7 +167,11 @@ async function main(): Promise<void> {
    * 描画ループで回すモデル。spin を付けたものだけ入る。
    * 立ち上げたモデルはZ軸、窓の中のモデルは立ったままなのでY軸まわりに回す。
    */
-  const spinningModels: { object: THREE.Object3D; axis: 'y' | 'z' }[] = [];
+  const spinningModels: { index: number; object: THREE.Object3D; axis: 'y' | 'z' }[] = [];
+  /** 画面をなぞってモデルを回す操作。対象は「いま映っているマーカー」のモデル */
+  const rotator = new RotateControl(containerEl, camera);
+  /** 「なぞると回せる」の案内を出したか。しつこくならないよう1回だけ出す */
+  let rotateHintShown = false;
   /** 窓（ポータル）。凹む演出の進み具合を管理する */
   const portals = new Map<number, { portal: Portal; openedAt: number | null; lostAt: number }>();
   /** 凹む演出にかける秒数 */
@@ -222,7 +227,9 @@ async function main(): Promise<void> {
         // モデルを指定しない（部屋だけで完結している）場合は何も置かない
         if (pivot) {
           if (placeOnSpot(portal, pivot)) {
-            if (def.spin) spinningModels.push({ object: pivot, axis: 'y' });
+            if (def.spin) spinningModels.push({ index: def.index, object: pivot, axis: 'y' });
+            // 窓の中のモデルは、倒すと床にめり込むので横回転だけ
+            if (def.rotatable !== false) rotator.register(def.index, pivot, 'yaw-only');
           } else {
             console.warn(`[AR] ${def.name} の部屋に ModelSpot が無いため、モデルは置きません`);
           }
@@ -237,7 +244,8 @@ async function main(): Promise<void> {
         // アンカーの座標系はマーカー面が XY 平面。X軸に90度回すとモデルがカードから立ち上がる。
         pivot.rotation.x = Math.PI / 2;
         anchor.group.add(pivot);
-        if (def.spin) spinningModels.push({ object: pivot, axis: 'z' });
+        if (def.spin) spinningModels.push({ index: def.index, object: pivot, axis: 'z' });
+        if (def.rotatable !== false) rotator.register(def.index, pivot, 'free');
       } else {
         console.warn(`[AR] ${def.name} は modelUrl も portal も無いため、何も表示しません`);
       }
@@ -253,6 +261,21 @@ async function main(): Promise<void> {
     }
   }
 
+  /**
+   * 初めてモデルが出たときに、なぞれば回せることを一度だけ知らせる。
+   * 説明なしで使えることが目標なので、操作の存在だけは画面で伝える。
+   */
+  function showRotateHint(def: TargetDef): void {
+    if (rotateHintShown || def.rotatable === false || !def.modelUrl) return;
+    if (statusEl.textContent) return; // 読み込み失敗などの表示を上書きしない
+    rotateHintShown = true;
+    const hint = '画面をなぞると回せます';
+    setStatus(hint);
+    window.setTimeout(() => {
+      if (statusEl.textContent === hint) setStatus('');
+    }, 3500);
+  }
+
   for (const def of TARGETS) {
     const anchor = mindarThree.addAnchor(def.index);
 
@@ -264,12 +287,14 @@ async function main(): Promise<void> {
         entry.openedAt = now;
       }
       setStatus('');
-      void loadModel(def, anchor, true);
+      rotator.setActive(def.index);
+      void loadModel(def, anchor, true).then(() => showRotateHint(def));
     };
     anchor.onTargetLost = () => {
       visibleCount = Math.max(0, visibleCount - 1);
       const entry = portals.get(def.index);
       if (entry) entry.lostAt = clock.elapsedTime;
+      if (visibleCount === 0) rotator.setActive(null);
       if (visibleCount === 0) setStatus('マーカーを探しています…');
     };
 
@@ -339,7 +364,10 @@ async function main(): Promise<void> {
     for (const mixer of mixers) {
       mixer.update(delta);
     }
-    for (const { object, axis } of spinningModels) {
+    rotator.update(delta, clock.elapsedTime);
+    for (const { index, object, axis } of spinningModels) {
+      // 触っている間と離した直後は、自動回転を止めて狙った角度を保つ
+      if (rotator.isHeld(index)) continue;
       object.rotation[axis] += 0.01;
     }
     for (const entry of portals.values()) {
