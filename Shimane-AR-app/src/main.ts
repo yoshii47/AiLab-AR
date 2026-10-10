@@ -211,18 +211,21 @@ async function main(): Promise<void> {
     try {
       // 窓の表示では部屋の glb も要る。モデルと並行して読む
       const [gltf, roomGltf] = await Promise.all([
-        loader.loadAsync(def.modelUrl),
+        def.modelUrl ? loader.loadAsync(def.modelUrl) : Promise.resolve(null),
         def.portal ? loader.loadAsync(def.portal.roomUrl) : Promise.resolve(null),
       ]);
-      const pivot = fitToMarker(gltf.scene, def.scale ?? 1);
+      const pivot = gltf ? fitToMarker(gltf.scene, def.scale ?? 1) : null;
 
       if (def.portal && roomGltf) {
         const portal = createPortal(roomGltf.scene, def.portal.windowWidth);
-        // 部屋は +Y が上なので、glb（Y軸が上）は回さずにそのまま立てて置ける
-        if (placeOnSpot(portal, pivot)) {
-          if (def.spin) spinningModels.push({ object: pivot, axis: 'y' });
-        } else {
-          console.warn(`[AR] ${def.name} の部屋に ModelSpot が無いため、モデルは置きません`);
+        // 部屋は +Y が上なので、glb（Y軸が上）は回さずにそのまま立てて置ける。
+        // モデルを指定しない（部屋だけで完結している）場合は何も置かない
+        if (pivot) {
+          if (placeOnSpot(portal, pivot)) {
+            if (def.spin) spinningModels.push({ object: pivot, axis: 'y' });
+          } else {
+            console.warn(`[AR] ${def.name} の部屋に ModelSpot が無いため、モデルは置きません`);
+          }
         }
         anchor.group.add(portal.root);
         // 認識前に読み終わった場合も、見つけた瞬間から凹み始めるよう閉じておく
@@ -230,14 +233,16 @@ async function main(): Promise<void> {
         portals.set(def.index, { portal, openedAt: null, lostAt: -Infinity });
         // 部屋の中の動き（揺れる小物など）は部屋の glb に入れてもらい、ここで再生する
         playAnimations(`${def.name} の部屋`, roomGltf);
-      } else {
+      } else if (pivot) {
         // アンカーの座標系はマーカー面が XY 平面。X軸に90度回すとモデルがカードから立ち上がる。
         pivot.rotation.x = Math.PI / 2;
         anchor.group.add(pivot);
         if (def.spin) spinningModels.push({ object: pivot, axis: 'z' });
+      } else {
+        console.warn(`[AR] ${def.name} は modelUrl も portal も無いため、何も表示しません`);
       }
 
-      if (def.animate !== false) playAnimations(def.name, gltf);
+      if (gltf && def.animate !== false) playAnimations(def.name, gltf);
 
       if (announce) setStatus('');
     } catch (error) {

@@ -10,7 +10,8 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { createPortal, placeOnSpot } from './portal';
 import type { Portal } from './portal';
 import { TARGETS } from './targets';
-import cardUrl from './assets/markers/card.png?url';
+// 窓の表示にしているマーカーのポスター画像。窓のマーカーを変えたらここも変える
+import posterUrl from './assets/markers/poison-soup-room.png?url';
 
 const def = TARGETS.find((t) => t.portal)!;
 const portalDef = def.portal!;
@@ -31,7 +32,7 @@ const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerH
 camera.position.set(0, 0, 1.6);
 
 // ポスター（実機ではカメラ映像）。奥行きを書かずに先に描くので、窓の中は部屋で上書きされる
-const texture = new THREE.TextureLoader().load(cardUrl, (tex) => {
+const texture = new THREE.TextureLoader().load(posterUrl, (tex) => {
   const aspect = tex.image.height / tex.image.width;
   poster.scale.set(1, aspect, 1);
 });
@@ -51,23 +52,26 @@ const mixers: THREE.AnimationMixer[] = [];
 /** 本番（main.ts）と同じ手順で、部屋の glb とモデルを組み立てる */
 async function build(): Promise<void> {
   const [gltf, roomGltf] = await Promise.all([
-    loader.loadAsync(def.modelUrl),
+    def.modelUrl ? loader.loadAsync(def.modelUrl) : Promise.resolve(null),
     loader.loadAsync(portalDef.roomUrl),
   ]);
   portal = createPortal(roomGltf.scene, portalDef.windowWidth);
   scene.add(portal.root);
 
-  const model = gltf.scene;
-  const box = new THREE.Box3().setFromObject(model);
-  const size = box.getSize(new THREE.Vector3());
-  const scale = (def.scale ?? 1) / Math.max(size.x, size.y, size.z);
-  model.scale.setScalar(scale);
-  model.position.sub(box.getCenter(new THREE.Vector3()).multiplyScalar(scale));
-  const pivot = new THREE.Group();
-  pivot.add(model);
-  if (placeOnSpot(portal, pivot)) spinning = pivot;
+  if (gltf) {
+    const model = gltf.scene;
+    const box = new THREE.Box3().setFromObject(model);
+    const size = box.getSize(new THREE.Vector3());
+    const scale = (def.scale ?? 1) / Math.max(size.x, size.y, size.z);
+    model.scale.setScalar(scale);
+    model.position.sub(box.getCenter(new THREE.Vector3()).multiplyScalar(scale));
+    const pivot = new THREE.Group();
+    pivot.add(model);
+    if (placeOnSpot(portal, pivot) && def.spin) spinning = pivot;
+  }
 
   for (const g of [gltf, roomGltf]) {
+    if (!g) continue;
     if (g.animations.length === 0) continue;
     const mixer = new THREE.AnimationMixer(g.scene);
     for (const clip of g.animations) mixer.clipAction(clip).play();

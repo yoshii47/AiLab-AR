@@ -8,9 +8,17 @@
  *
  *   1. https://hiukim.github.io/mind-ar-js-doc/tools/compile を開く
  *   2. 下の TARGETS に並んでいる順番どおりに、ポスター画像をアップロードする
- *        index 0 -> card.png
- *        index 1 -> logo-marker.png
- *        index 2 -> kanji-fish.png（魚の漢字カード）
+ *      （src/assets/markers/ をファイル名順に選ぶと、ちょうどこの順になる）
+ *        index 0 -> AIilblogoteisei.png
+ *        index 1 -> fish_school.png
+ *        index 2 -> gyroid-borrome-museum.png
+ *        index 3 -> hidden-cat-fragments.png
+ *        index 4 -> hidden-owl-clean.png
+ *        index 5 -> line-rabbit-fragments.png
+ *        index 6 -> mugen_gimbal.png
+ *        index 7 -> poison-soup-room.png
+ *        index 8 -> Present01.png
+ *        index 9 -> spinning_sphere_2color.png
  *   3. 出力を src/assets/markers/targets.mind に置く
  *
  *   .mind は「1ファイルに全マーカー」という形式で、MindAR は .mind を1本しか
@@ -25,10 +33,16 @@
 // ?url で読むと、ファイルが存在しない場合にビルドが失敗する。
 // パスのタイポを実機まで持ち込まないための保険。
 import markerUrl from './assets/markers/targets.mind?url';
-import present01Url from './assets/glb/Present01.glb?url';
 import ailabLogoUrl from './assets/glb/AIlablogoteisei.glb?url';
 import fishSchoolUrl from './assets/glb/fish_school.glb?url';
-import sampleRoomUrl from './assets/glb/sample-room.glb?url';
+import gyroidMuseumUrl from './assets/glb/gyroid-borromean-museum.glb?url';
+import hiddenCatUrl from './assets/glb/hidden-cat-fragments.glb?url';
+import hiddenOwlUrl from './assets/glb/hidden-owl-clean.glb?url';
+import lineRabbitUrl from './assets/glb/line-rabbit-fragments.glb?url';
+import mugenGimbalUrl from './assets/glb/mugen_gimbal.glb?url';
+import poisonSoupRoomUrl from './assets/glb/poison-soup-room.glb?url';
+import present01Url from './assets/glb/Present01.glb?url';
+import spinningSphereUrl from './assets/glb/spinning_sphere_2color.glb?url';
 
 /** 全マーカー分をまとめた .mind。複数対応したらファイル名ごと差し替える。 */
 export const MARKER_URL = markerUrl;
@@ -38,8 +52,11 @@ export type TargetDef = {
   index: number;
   /** 取り違えに気づくための名前。画面表示とログに使う */
   name: string;
-  /** 表示する glb */
-  modelUrl: string;
+  /**
+   * 表示する glb。
+   * 窓（portal）の表示では省略できる。部屋の glb だけで完結している場合に使う。
+   */
+  modelUrl?: string;
   /** マーカーの幅を 1.0 とした時の大きさ。省略時は 1 */
   scale?: number;
   /** その場でくるくる回すか */
@@ -79,18 +96,24 @@ export type PortalDef = {
 };
 
 export const TARGETS: TargetDef[] = [
-  // 窓の試作。card.png は縦長の 372x674（高さ÷幅 = 1.81）。
-  // 見本の部屋の Window は 0.7 x 0.9 なので、幅 0.7 にすると窓は 0.7 x 0.9 になり縁が残る
-  {
-    index: 0,
-    name: 'プレゼント（窓の試作）',
-    modelUrl: present01Url,
-    spin: true,
-    scale: 0.3,
-    preload: true,
-    portal: { roomUrl: sampleRoomUrl, windowWidth: 0.7 },
-  },
-  { index: 1, name: 'AIラボのロゴ', modelUrl: ailabLogoUrl, spin: true, preload: true },
+  { index: 0, name: 'AIラボのロゴ', modelUrl: ailabLogoUrl, spin: true, preload: true },
   // 「Swim」アニメーションが入っているので、手動回転は切って泳ぎだけ見せる
-  { index: 2, name: '魚の群れ', modelUrl: fishSchoolUrl, preload: true },
+  { index: 1, name: '魚の群れ', modelUrl: fishSchoolUrl, preload: true },
+  { index: 2, name: 'ジャイロイドの美術館', modelUrl: gyroidMuseumUrl },
+  // 「隠れた〇〇」系は、見る角度を探して形を見つける作品。回すと台無しなので spin は付けない
+  { index: 3, name: '隠れた猫', modelUrl: hiddenCatUrl },
+  { index: 4, name: '隠れたフクロウ', modelUrl: hiddenOwlUrl },
+  { index: 5, name: '線のウサギ', modelUrl: lineRabbitUrl },
+  // 「loop」アニメーションが入っている
+  { index: 6, name: '無限ジンバル', modelUrl: mugenGimbalUrl },
+  // 窓の表示。部屋の glb の Window は 0.7 x 0.9。
+  // poison-soup-room.png は 1654x2339（高さ÷幅 = 1.41）なので、幅 0.7 なら上下左右に縁が残る
+  {
+    index: 7,
+    name: '毒スープの部屋',
+    portal: { roomUrl: poisonSoupRoomUrl, windowWidth: 0.7 },
+  },
+  { index: 8, name: 'プレゼント', modelUrl: present01Url, spin: true, preload: true },
+  // 「Spin」アニメーションが入っているので、手動回転は付けない
+  { index: 9, name: '回る2色の球', modelUrl: spinningSphereUrl },
 ];
