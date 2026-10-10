@@ -169,7 +169,7 @@ async function main(): Promise<void> {
    */
   const spinningModels: { index: number; object: THREE.Object3D; axis: 'y' | 'z' }[] = [];
   /** 画面をなぞってモデルを回す操作。対象は「いま映っているマーカー」のモデル */
-  const rotator = new RotateControl(containerEl);
+  const rotator = new RotateControl(containerEl, camera);
   /** 「なぞると回せる」の案内を出したか。しつこくならないよう1回だけ出す */
   let rotateHintShown = false;
   /** 窓（ポータル）。凹む演出の進み具合を管理する */
